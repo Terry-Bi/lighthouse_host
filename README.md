@@ -1,7 +1,7 @@
 # lighthouse_host
 
 ## data 2025-7-19
-## version 1.0
+## version 2.0
 ## bizhoutao.terry@gmail.com
 
 ## base function    
@@ -17,5 +17,14 @@
 
 
 ## some problems
-    1. The data stream if more than 2000Hz(Byte), the host will destory.
-    2. Need a clear button in the to clear the x,y trajectory.
+
+### update v2 
+
+1. Use a circular buffer (or QByteArray) to cache data without immediate processing
+2. Use QTimer to batch process once every 50ms
+3. Limit the update frequency of the chart; do not refresh it every time a point is received 
+
+### update v1 
+
+1. The data stream if more than 2000Hz(Byte), the host will destory.
+2. Need a clear button in the to clear the x,y trajectory.
