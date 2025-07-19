@@ -1,6 +1,6 @@
 # lighthouse_host
 
-## Date 2025-7-19
+## Date 2025-7-20
 ## Version 3.0
 ## Email:    bizhoutao.terry@gmail.com
 
@@ -17,6 +17,8 @@
 
 
 ## some problems
+
+### update v3.0
 
 ### update v2 
 
