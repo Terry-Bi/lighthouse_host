@@ -1,7 +1,7 @@
 # lighthouse_host
 
-## Date 2025-7-20
-## Version 3.0
+## Date 2025-7-19
+## Version 2.0
 ## Email:    bizhoutao.terry@gmail.com
 
 ## base function    
@@ -18,8 +18,8 @@
 
 ## some problems
 
-### update v3.0
-
+### update v3 
+ 啊实打实大苏打
 ### update v2 
 
 1. Use a circular buffer (or QByteArray) to cache data without immediate processing
