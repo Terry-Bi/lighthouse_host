@@ -1,8 +1,8 @@
 # lighthouse_host
 
-## data 2025-7-19
-## version 2.0
-## bizhoutao.terry@gmail.com
+## Date 2025-7-19
+## Version 2.0
+## Email:    bizhoutao.terry@gmail.com
 
 ## base function    
     The host can achicve functions include Serial helper, draw the Coordinates.
