@@ -8,7 +8,7 @@
 #include <QPointF>
 
 
-QTimer *processTimer;
+
 
 
 QT_BEGIN_NAMESPACE
@@ -31,6 +31,7 @@ private slots:
     void readSerialData();
     void on_tabWidget_currentChanged(int index);
     void on_btnSend_clicked();
+    void processBufferedData();
 
 private:
     Ui::MainWindow *ui;
@@ -38,6 +39,7 @@ private:
     QVector<QPointF> device1Points;
     QVector<QPointF> device2Points;
     QByteArray buffer;
+    QTimer *processTimer;
     void setupSerialPortSettings();
     void parseDataPacket(const QByteArray &packet);
     void updatePlot();
