@@ -19,7 +19,7 @@
 ## some problems
 
 ### update v3 
- 啊实打实大苏打
+ 
 ### update v2 
 
 1. Use a circular buffer (or QByteArray) to cache data without immediate processing
