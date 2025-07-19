@@ -5,6 +5,7 @@
 #include <QtCharts/QChartView>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
+#include <QTimer>
 
 //QT_CHARTS_USE_NAMESPACE
 QT_USE_NAMESPACE
@@ -61,9 +62,11 @@ MainWindow::MainWindow(QWidget *parent)
 
 
     processTimer = new QTimer(this);
-    processTimer->setInterval(50);                     // 50 ms 批量处理一次
+    processTimer->setInterval(50);
     connect(processTimer, &QTimer::timeout,
             this,        &MainWindow::processBufferedData);
+
+
 }
 
 MainWindow::~MainWindow()
@@ -146,35 +149,10 @@ void MainWindow::on_connectButton_clicked()
 
 void MainWindow::readSerialData()
 {
+    buffer.append(serialPort->readAll());          // 只缓存，不处理
 
-    QByteArray data = serialPort->readAll();
-    buffer.append(data);
-
-    /* ---- 十六进制 + ASCII 双格式显示 ---- */
-    QString hex = data.toHex(' ').toUpper();
-    QString ascii;
-    for (char c : data)
-        ascii.append((c >= 32 && c < 127) ? c : '.');
-    ui->textRx->appendPlainText(QString("RX[%1] %2  |  %3")
-                                    .arg(data.size(), 3, 10, QChar(' '))
-                                    .arg(hex, -30)
-                                    .arg(ascii));
-
-
-    // 查找数据包
-    int headerIndex = buffer.indexOf(0xFA);
-    while (headerIndex != -1 && buffer.size() > headerIndex + 8) {
-        if ((unsigned char)buffer.at(headerIndex + 8) == 0xAF){
-            // 找到完整的数据包
-            QByteArray packet = buffer.mid(headerIndex, 9);
-            parseDataPacket(packet);
-            buffer.remove(0, headerIndex + 9);
-        } else {
-            // 不是有效的数据包，继续查找
-            buffer.remove(0, headerIndex + 1);
-        }
-        headerIndex = buffer.indexOf(0xFA);
-    }
+    if (!buffer.isEmpty() && !processTimer->isActive())
+        processTimer->start();                     // 启动定时器
 }
 
 void MainWindow::on_btnSend_clicked()
@@ -190,12 +168,6 @@ void MainWindow::on_btnSend_clicked()
                                     .arg(QString::fromUtf8(data)));
     ui->lineTx->clear();
 }
-
-
-
-
-
-
 
 void MainWindow::parseDataPacket(const QByteArray &packet)
 {
@@ -226,8 +198,58 @@ void MainWindow::parseDataPacket(const QByteArray &packet)
     ui->statusLabel->setText(QString("收到数据 - 设备: 0x%1, X: %2, Y: %3").arg(deviceId, 2, 16, QChar('0')).arg(x).arg(y));
 }
 
+void MainWindow::processBufferedData()
+{
+    /* ---------- 1. 每次最多处理 1000 字节，防止卡顿 ---------- */
+    const int chunkSize = 1000;
+    QByteArray chunk = buffer.left(chunkSize);
+    buffer.remove(0, chunk.size());
+
+    /* ---------- 2. 十六进制 + ASCII 显示（可选行数限制） ---------- */
+    QString hex = chunk.toHex(' ').toUpper();
+    QString ascii;
+    for (char c : chunk)
+        ascii.append((c >= 32 && c < 127) ? c : '.');
+
+    ui->textRx->appendPlainText(
+        QString("RX[%1] %2  |  %3")
+            .arg(chunk.size(), 3, 10, QChar(' '))
+            .arg(hex, -30)
+            .arg(ascii));
+
+    /* ---------- 3. 限制最大行数，防止内存爆炸 ---------- */
+    const int maxLines = 1000;
+    if (ui->textRx->blockCount() > maxLines)
+        ui->textRx->setMaximumBlockCount(maxLines);
+
+    /* ---------- 4. 解析数据包 ---------- */
+    int head = chunk.indexOf(0xFA);
+    while (head != -1 && chunk.size() > head + 8) {
+        if ((quint8)chunk.at(head + 8) == 0xAF) {
+            QByteArray packet = chunk.mid(head, 9);
+            parseDataPacket(packet);               // 你的原函数
+            chunk.remove(0, head + 9);
+        } else {
+            chunk.remove(0, head + 1);
+        }
+        head = chunk.indexOf(0xFA);
+    }
+
+    /* ---------- 5. 如果还有数据，继续定时；否则停止 ---------- */
+    if (!buffer.isEmpty())
+        processTimer->start();
+    else
+        processTimer->stop();
+}
+
+
+
+
 void MainWindow::updatePlot()
 {
+
+    static int frameSkip = 0;
+    if (++frameSkip % 5) return;   // 每 5 次才刷新一次
     // 获取 chart
     QChartView *chartView = qobject_cast<QChartView *>(ui->chartLayout->itemAt(0)->widget());
     if (!chartView) return;
