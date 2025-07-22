@@ -6,7 +6,7 @@
 #include <QSerialPortInfo>
 #include <QVector>
 #include <QPointF>
-
+#include <QtCharts/QScatterSeries>
 
 
 
@@ -50,6 +50,7 @@ private:
     void parseDataPacket(const QByteArray &packet);
     void updatePlot();
     void clearPlot();
+    QScatterSeries *cursorDot = nullptr;
 
     qreal m_span   = 200000.0;      // 当前坐标跨度（±span/2）
     QPointF m_center{0.0, 0.0};     // 当前几何中心

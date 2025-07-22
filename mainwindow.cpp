@@ -69,6 +69,19 @@ MainWindow::MainWindow(QWidget *parent)
     lineY0->attachAxis(axisX);
     lineY0->attachAxis(axisY);
 
+    cursorDot = new QScatterSeries();
+    cursorDot->setName("当前点");
+    cursorDot->setMarkerShape(QScatterSeries::MarkerShapeCircle);
+    cursorDot->setMarkerSize(10);          // 直径 > 轨迹线宽即可
+    cursorDot->setColor(Qt::red);
+    cursorDot->setBorderColor(Qt::red);
+    chart->addSeries(cursorDot);
+    cursorDot->attachAxis(axisX);
+    cursorDot->attachAxis(axisY);
+
+
+
+
 
 
     // 设置图表视图
@@ -234,6 +247,9 @@ void MainWindow::parseDataPacket(const QByteArray &packet)
 
     // 更新图表
     updatePlot();
+    // 把原点挪到最新坐标
+    cursorDot->clear();
+    cursorDot->append(x, y);
 
     // 在状态栏显示最新数据
     ui->statusLabel->setText(QString("收到数据 - 设备: 0x%1, X: %2, Y: %3").arg(deviceId, 2, 16, QChar('0')).arg(x).arg(y));
@@ -289,7 +305,7 @@ void MainWindow::processBufferedData()
 void MainWindow::updatePlot()
 {
     static int frameSkip = 0;
-    if (++frameSkip % 5) return;   // 每 5 次刷新一次
+    if (++frameSkip % 3) return;   // 每 5 次刷新一次
 
     QChartView *chartView = qobject_cast<QChartView *>(ui->chartLayout->itemAt(0)->widget());
     if (!chartView) return;
