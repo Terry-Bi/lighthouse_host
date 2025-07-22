@@ -24,6 +24,7 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private slots:
     void on_connectButton_clicked();
@@ -32,6 +33,11 @@ private slots:
     void on_tabWidget_currentChanged(int index);
     void on_btnSend_clicked();
     void processBufferedData();
+
+    void onZoom(qreal factor);      // 滚轮缩放
+    void onScroll();                // 滑条移动
+    void updateAxes();              // 统一刷新轴范围
+
 
 private:
     Ui::MainWindow *ui;
@@ -43,5 +49,10 @@ private:
     void setupSerialPortSettings();
     void parseDataPacket(const QByteArray &packet);
     void updatePlot();
+    void clearPlot();
+
+    qreal m_span   = 200000.0;      // 当前坐标跨度（±span/2）
+    QPointF m_center{0.0, 0.0};     // 当前几何中心
+
 };
 #endif // MAINWINDOW_H

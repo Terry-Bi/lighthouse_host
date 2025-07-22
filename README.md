@@ -1,6 +1,6 @@
 # lighthouse_host
 
-## Date 2025-7-20
+## Date 2025-7-22
 ## Version 3.0
 ## Email:    bizhoutao.terry@gmail.com
 
@@ -18,8 +18,8 @@
 
 ## some problems
 
-### update v3.0
-
+### update v3 
+ Update the four quadrants, thicken the XY axes, scale and move the center points
 ### update v2 
 
 1. Use a circular buffer (or QByteArray) to cache data without immediate processing

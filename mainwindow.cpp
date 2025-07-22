@@ -22,14 +22,14 @@ MainWindow::MainWindow(QWidget *parent)
     chart->setTitle("坐标轨迹");
     chart->createDefaultAxes();
 
-    // 设置X轴和Y轴范围
+    // 四象限对称范围，原点居中
     QValueAxis *axisX = new QValueAxis;
-    axisX->setRange(0, 100000);
+    axisX->setRange(-100000, 100000);
     axisX->setTitleText("X坐标");
     chart->addAxis(axisX, Qt::AlignBottom);
 
     QValueAxis *axisY = new QValueAxis;
-    axisY->setRange(0, 100000);
+    axisY->setRange(-100000, 100000);
     axisY->setTitleText("Y坐标");
     chart->addAxis(axisY, Qt::AlignLeft);
 
@@ -47,10 +47,51 @@ MainWindow::MainWindow(QWidget *parent)
     series2->attachAxis(axisX);
     series2->attachAxis(axisY);
 
+    // 添加 X=0 参考线（垂直线）
+    QLineSeries *lineX0 = new QLineSeries();
+    lineX0->setName("X=0");
+    lineX0->append(0, -1000000);
+    lineX0->append(0, 1000000);
+    lineX0->setColor(Qt::black);
+    lineX0->setPen(QPen(Qt::black, 4)); // 设置线条宽度为3
+    chart->addSeries(lineX0);
+    lineX0->attachAxis(axisX);
+    lineX0->attachAxis(axisY);
+
+    // 添加 Y=0 参考线（水平线）
+    QLineSeries *lineY0 = new QLineSeries();
+    lineY0->setName("Y=0");
+    lineY0->append(-1000000, 0);
+    lineY0->append(1000000, 0);
+    lineY0->setColor(Qt::black);
+    lineY0->setPen(QPen(Qt::black, 4)); // 设置线条宽度为3
+    chart->addSeries(lineY0);
+    lineY0->attachAxis(axisX);
+    lineY0->attachAxis(axisY);
+
+
+
     // 设置图表视图
     QChartView *chartView = new QChartView(chart);
     chartView->setRenderHint(QPainter::Antialiasing);
     ui->chartLayout->addWidget(chartView);
+
+    //清除轨迹摁键
+    connect(ui->btnClearPlot, &QPushButton::clicked, this, &MainWindow::clearPlot);
+
+    // 滑条范围 0-1000，初始在中间
+    ui->vScrollBar->setRange(0, 1000);
+    ui->hScrollBar->setRange(0, 1000);
+    ui->vScrollBar->setValue(500);
+    ui->hScrollBar->setValue(500);
+
+    connect(ui->vScrollBar, &QScrollBar::valueChanged, this, &MainWindow::onScroll);
+    connect(ui->hScrollBar, &QScrollBar::valueChanged, this, &MainWindow::onScroll);
+
+    // 捕获滚轮事件，后面会写事件过滤器
+    ui->chartLayout->itemAt(0)->widget()->installEventFilter(this);
+
+
 
 
     // 连接串口数据接收信号
@@ -247,16 +288,14 @@ void MainWindow::processBufferedData()
 
 void MainWindow::updatePlot()
 {
-
     static int frameSkip = 0;
-    if (++frameSkip % 5) return;   // 每 5 次才刷新一次
-    // 获取 chart
+    if (++frameSkip % 5) return;   // 每 5 次刷新一次
+
     QChartView *chartView = qobject_cast<QChartView *>(ui->chartLayout->itemAt(0)->widget());
     if (!chartView) return;
     QChart *chart = chartView->chart();
     if (!chart) return;
 
-    // 获取两个序列
     QLineSeries *series1 = nullptr;
     QLineSeries *series2 = nullptr;
     for (QAbstractSeries *s : chart->series()) {
@@ -264,7 +303,6 @@ void MainWindow::updatePlot()
         if (s->name() == "设备2") series2 = qobject_cast<QLineSeries *>(s);
     }
 
-    // 更新数据
     if (series1) {
         series1->clear();
         series1->append(device1Points);
@@ -273,44 +311,6 @@ void MainWindow::updatePlot()
         series2->clear();
         series2->append(device2Points);
     }
-
-    // 合并所有点
-    QList<QPointF> allPoints;
-    allPoints << device1Points << device2Points;
-    if (allPoints.isEmpty()) return;
-
-    // 计算坐标范围
-    qreal xMin = allPoints.first().x();
-    qreal xMax = xMin;
-    qreal yMin = allPoints.first().y();
-    qreal yMax = yMin;
-
-    for (const QPointF &p : allPoints) {
-        xMin = qMin(xMin, p.x());
-        xMax = qMax(xMax, p.x());
-        yMin = qMin(yMin, p.y());
-        yMax = qMax(yMax, p.y());
-    }
-
-    // 留边距
-    const qreal margin = 5;
-    xMin -= margin;
-    xMax += margin;
-    yMin -= margin;
-    yMax += margin;
-
-    // 获取坐标轴（避免使用废弃接口）
-    QList<QAbstractAxis *> axes = chart->axes(Qt::Horizontal);
-    if (!axes.isEmpty()) {
-        QValueAxis *axisX = qobject_cast<QValueAxis *>(axes.first());
-        if (axisX) axisX->setRange(xMin, xMax);
-    }
-
-    axes = chart->axes(Qt::Vertical);
-    if (!axes.isEmpty()) {
-        QValueAxis *axisY = qobject_cast<QValueAxis *>(axes.first());
-        if (axisY) axisY->setRange(yMin, yMax);
-    }
 }
 
 void MainWindow::on_tabWidget_currentChanged(int index)
@@ -318,4 +318,87 @@ void MainWindow::on_tabWidget_currentChanged(int index)
     if (index == 1 && (!device1Points.isEmpty() || !device2Points.isEmpty())) {
         updatePlot();
     }
+}
+void MainWindow::clearPlot()
+{
+    // 清空本地数据缓存
+    device1Points.clear();
+    device2Points.clear();
+
+    // 清空图表中的轨迹线
+    QChartView *chartView = qobject_cast<QChartView *>(ui->chartLayout->itemAt(0)->widget());
+    if (!chartView) return;
+
+    QChart *chart = chartView->chart();
+    if (!chart) return;
+
+    for (QAbstractSeries *s : chart->series()) {
+        QLineSeries *series = qobject_cast<QLineSeries *>(s);
+        if (series) {
+            series->clear();
+        }
+    }
+
+    // 可选：重置坐标轴范围
+    QList<QAbstractAxis *> axesX = chart->axes(Qt::Horizontal);
+    QList<QAbstractAxis *> axesY = chart->axes(Qt::Vertical);
+    if (!axesX.isEmpty() && !axesY.isEmpty()) {
+        QValueAxis *axisX = qobject_cast<QValueAxis *>(axesX.first());
+        QValueAxis *axisY = qobject_cast<QValueAxis *>(axesY.first());
+        if (axisX && axisY) {
+            axisX->setRange(0, 100000);
+            axisY->setRange(0, 100000);
+        }
+    }
+
+    ui->statusLabel->setText("轨迹已清空");
+}
+
+//事件过滤器
+bool MainWindow::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == ui->chartLayout->itemAt(0)->widget() && event->type() == QEvent::Wheel)
+    {
+        QWheelEvent *we = static_cast<QWheelEvent*>(event);
+        qreal factor = (we->angleDelta().y() > 0) ? 0.8 : 1.25;
+        onZoom(factor);
+        return true;
+    }
+    return QMainWindow::eventFilter(obj, event);
+}
+//缩放槽函数
+void MainWindow::onZoom(qreal factor)
+{
+    m_span *= factor;
+    m_span = qBound(100.0, m_span, 2e6);   // 限制最小/最大跨度
+    updateAxes();
+}
+
+//滑条槽函数
+void MainWindow::onScroll()
+{
+    // 把滑条 0-1000 线性映射到 -100000 ~ +100000
+    qreal dx = (ui->hScrollBar->value() - 500) / 500.0 * 100000.0;
+    qreal dy = (500 - ui->vScrollBar->value()) / 500.0 * 100000.0;
+    m_center = QPointF(dx, dy);
+    updateAxes();
+}
+
+//统一刷新轴范围（updateAxes）
+void MainWindow::updateAxes()
+{
+    QChartView *cv = qobject_cast<QChartView*>(ui->chartLayout->itemAt(0)->widget());
+    if (!cv) return;
+    QChart *c = cv->chart();
+    if (!c) return;
+
+    qreal xMin = m_center.x() - m_span/2;
+    qreal xMax = m_center.x() + m_span/2;
+    qreal yMin = m_center.y() - m_span/2;
+    qreal yMax = m_center.y() + m_span/2;
+
+    QValueAxis *ax = qobject_cast<QValueAxis*>(c->axes(Qt::Horizontal).first());
+    QValueAxis *ay = qobject_cast<QValueAxis*>(c->axes(Qt::Vertical).first());
+    if (ax) ax->setRange(xMin, xMax);
+    if (ay) ay->setRange(yMin, yMax);
 }
