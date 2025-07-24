@@ -1,7 +1,7 @@
 # lighthouse_host
 
 ## Date 2025-7-22
-## Version 3.0
+## Version 3.1
 ## Email:    bizhoutao.terry@gmail.com
 
 ## base function    
@@ -18,7 +18,10 @@
 
 ## some problems
 
-### update v3 
+### update v3.1 
+ update a lightmark in the map
+
+### update v3.0 
  Update the four quadrants, thicken the XY axes, scale and move the center points
 ### update v2 
 

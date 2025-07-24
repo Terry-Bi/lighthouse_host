@@ -6,6 +6,7 @@
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
 #include <QTimer>
+#include <QtCharts/QLineSeries>
 
 //QT_CHARTS_USE_NAMESPACE
 QT_USE_NAMESPACE
@@ -23,14 +24,14 @@ MainWindow::MainWindow(QWidget *parent)
     chart->createDefaultAxes();
 
     // 四象限对称范围，原点居中
-    QValueAxis *axisX = new QValueAxis;
-    axisX->setRange(-100000, 100000);
-    axisX->setTitleText("X坐标");
+    axisX = new QValueAxis;
+    axisX->setRange(-2'000'000, 2'000'000);
+    axisX->setTitleText("X坐标（原始）");
     chart->addAxis(axisX, Qt::AlignBottom);
 
-    QValueAxis *axisY = new QValueAxis;
-    axisY->setRange(-100000, 100000);
-    axisY->setTitleText("Y坐标");
+    axisY = new QValueAxis;
+    axisY->setRange(-2'000'000, 2'000'000);
+    axisY->setTitleText("Y坐标（原始）");
     chart->addAxis(axisY, Qt::AlignLeft);
 
     // 创建设备1的轨迹系列
@@ -47,27 +48,40 @@ MainWindow::MainWindow(QWidget *parent)
     series2->attachAxis(axisX);
     series2->attachAxis(axisY);
 
-    // 添加 X=0 参考线（垂直线）
-    QLineSeries *lineX0 = new QLineSeries();
+    // X=0 垂直线
+    QLineSeries *lineX0 = new QLineSeries;
     lineX0->setName("X=0");
-    lineX0->append(0, -1000000);
-    lineX0->append(0, 1000000);
+    lineX0->append(0, -2'000'000);
+    lineX0->append(0,  2'000'000);
     lineX0->setColor(Qt::black);
-    lineX0->setPen(QPen(Qt::black, 4)); // 设置线条宽度为3
+    lineX0->setPen(QPen(Qt::black, 4));
     chart->addSeries(lineX0);
     lineX0->attachAxis(axisX);
     lineX0->attachAxis(axisY);
 
-    // 添加 Y=0 参考线（水平线）
-    QLineSeries *lineY0 = new QLineSeries();
+    // Y=0 水平线
+    QLineSeries *lineY0 = new QLineSeries;
     lineY0->setName("Y=0");
-    lineY0->append(-1000000, 0);
-    lineY0->append(1000000, 0);
+    lineY0->append(-2'000'000, 0);
+    lineY0->append( 2'000'000, 0);
     lineY0->setColor(Qt::black);
-    lineY0->setPen(QPen(Qt::black, 4)); // 设置线条宽度为3
+    lineY0->setPen(QPen(Qt::black, 4));
     chart->addSeries(lineY0);
     lineY0->attachAxis(axisX);
     lineY0->attachAxis(axisY);
+
+    cursorDot = new QScatterSeries();
+    cursorDot->setName("当前点");
+    cursorDot->setMarkerShape(QScatterSeries::MarkerShapeCircle);
+    cursorDot->setMarkerSize(10);          // 直径 > 轨迹线宽即可
+    cursorDot->setColor(Qt::red);
+    cursorDot->setBorderColor(Qt::red);
+    chart->addSeries(cursorDot);
+    cursorDot->attachAxis(axisX);
+    cursorDot->attachAxis(axisY);
+
+
+
 
 
 
@@ -91,7 +105,8 @@ MainWindow::MainWindow(QWidget *parent)
     // 捕获滚轮事件，后面会写事件过滤器
     ui->chartLayout->itemAt(0)->widget()->installEventFilter(this);
 
-
+    m_center = QPointF(0, 0);
+    m_span = 10000; // 初始跨度，可根据需求调整
 
 
     // 连接串口数据接收信号
@@ -107,6 +122,20 @@ MainWindow::MainWindow(QWidget *parent)
     connect(processTimer, &QTimer::timeout,
             this,        &MainWindow::processBufferedData);
 
+
+
+    //校准功能
+
+    connect(ui->btnCalOrigin, &QPushButton::clicked,
+            this,             &MainWindow::onCalibrateOrigin);
+
+    connect(ui->btnCal10_10,    &QPushButton::clicked,
+            this,               &MainWindow::onCalibrate10_10);
+    connect(ui->btnCalN10_N10,  &QPushButton::clicked,
+            this,               &MainWindow::onCalibrateN10_N10);
+    //ui->btnToggleCoord->setText("切换坐标系");
+    connect(ui->btnToggleCoord,  &QPushButton::clicked,
+            this,               &MainWindow::onToggleCoordSystem);
 
 }
 
@@ -235,8 +264,14 @@ void MainWindow::parseDataPacket(const QByteArray &packet)
     // 更新图表
     updatePlot();
 
+    QPointF raw(x, y);
+    QPointF mapped = mapPoint(raw);   // 始终用变换后的坐标
+    cursorDot->clear();
+    cursorDot->append(mapped);
+
     // 在状态栏显示最新数据
     ui->statusLabel->setText(QString("收到数据 - 设备: 0x%1, X: %2, Y: %3").arg(deviceId, 2, 16, QChar('0')).arg(x).arg(y));
+    refreshDev1Label();
 }
 
 void MainWindow::processBufferedData()
@@ -288,30 +323,69 @@ void MainWindow::processBufferedData()
 
 void MainWindow::updatePlot()
 {
+    /* 1. 简单的帧率控制，避免高频重绘 */
     static int frameSkip = 0;
-    if (++frameSkip % 5) return;   // 每 5 次刷新一次
+    if (++frameSkip % 3)   // 每 3 次调用才刷新一次
+        return;
 
+    /* 2. 取得图表对象 */
     QChartView *chartView = qobject_cast<QChartView *>(ui->chartLayout->itemAt(0)->widget());
     if (!chartView) return;
     QChart *chart = chartView->chart();
     if (!chart) return;
 
-    QLineSeries *series1 = nullptr;
-    QLineSeries *series2 = nullptr;
-    for (QAbstractSeries *s : chart->series()) {
-        if (s->name() == "设备1") series1 = qobject_cast<QLineSeries *>(s);
-        if (s->name() == "设备2") series2 = qobject_cast<QLineSeries *>(s);
+    /* 3. 遍历图表里的所有系列 */
+    for (QAbstractSeries *baseSeries : chart->series())
+    {
+        /* 3-1 只处理折线系列，其余（十字线、游标点）跳过 */
+        QLineSeries *line = qobject_cast<QLineSeries *>(baseSeries);
+        if (!line) continue;   // 不是折线就跳过
+
+        /* 3-2 根据系列名字拿到原始数据容器指针 */
+        const QVector<QPointF> *rawPoints = nullptr;
+        if (line->name() == "设备1")
+            rawPoints = &device1Points;
+        else if (line->name() == "设备2")
+            rawPoints = &device2Points;
+        // 如果以后还有设备3、4……在这里继续 else if
+        else
+            continue;          // 未知系列也跳过
+
+        /* 3-3 清空旧点，重新填充（统一经过坐标变换） */
+        line->clear();
+        QVector<QPointF> pts = line->points();
+        for (const QPointF &rawPt : *rawPoints)
+        {
+            QPointF mappedPt = mapPoint(rawPt);
+            pts.append(mappedPt);
+        }
+        line->replace(pts);
     }
 
-    if (series1) {
-        series1->clear();
-        series1->append(device1Points);
+    /* 4. 同步游标点（红色圆点）也要映射 */
+    cursorDot->clear();
+    QPointF latestRaw;
+
+    // 谁最后收到数据就显示谁的红点（你也可以固定为设备1）
+    if (!device1Points.isEmpty())
+        latestRaw = device1Points.last();
+    if (!device2Points.isEmpty() &&
+        (device1Points.isEmpty() ||
+         device2Points.last().x() > device1Points.last().x()))
+        latestRaw = device2Points.last();
+
+    if (!latestRaw.isNull())
+    {
+        QPointF latestMapped = mapPoint(latestRaw);
+        cursorDot->append(latestMapped);
     }
-    if (series2) {
-        series2->clear();
-        series2->append(device2Points);
-    }
+
+    updateAxes();
 }
+
+
+
+
 
 void MainWindow::on_tabWidget_currentChanged(int index)
 {
@@ -334,7 +408,10 @@ void MainWindow::clearPlot()
 
     for (QAbstractSeries *s : chart->series()) {
         QLineSeries *series = qobject_cast<QLineSeries *>(s);
-        if (series) {
+        if (!series) continue;
+
+        // 只清空轨迹线，保留参考线
+        if (series->name() == "设备1" || series->name() == "设备2") {
             series->clear();
         }
     }
@@ -346,12 +423,13 @@ void MainWindow::clearPlot()
         QValueAxis *axisX = qobject_cast<QValueAxis *>(axesX.first());
         QValueAxis *axisY = qobject_cast<QValueAxis *>(axesY.first());
         if (axisX && axisY) {
-            axisX->setRange(0, 100000);
-            axisY->setRange(0, 100000);
+            axisX->setRange(-10000, 10000);
+            axisY->setRange(-10000, 10000);
         }
     }
 
     ui->statusLabel->setText("轨迹已清空");
+    updateAxes();
 }
 
 //事件过滤器
@@ -370,7 +448,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 void MainWindow::onZoom(qreal factor)
 {
     m_span *= factor;
-    m_span = qBound(100.0, m_span, 2e6);   // 限制最小/最大跨度
+    m_span = qBound(10.0, m_span, 2e4);   // 限制最小/最大跨度
     updateAxes();
 }
 
@@ -387,18 +465,162 @@ void MainWindow::onScroll()
 //统一刷新轴范围（updateAxes）
 void MainWindow::updateAxes()
 {
-    QChartView *cv = qobject_cast<QChartView*>(ui->chartLayout->itemAt(0)->widget());
-    if (!cv) return;
-    QChart *c = cv->chart();
+    QChart *c = qobject_cast<QChartView*>(ui->chartLayout->itemAt(0)->widget())->chart();
     if (!c) return;
 
-    qreal xMin = m_center.x() - m_span/2;
-    qreal xMax = m_center.x() + m_span/2;
-    qreal yMin = m_center.y() - m_span/2;
-    qreal yMax = m_center.y() + m_span/2;
+    // 以 m_center 为中心，m_span 为跨度，手动设置范围
+    double half = m_span / 2.0;
+    double xMin = m_center.x() - half;
+    double xMax = m_center.x() + half;
+    double yMin = m_center.y() - half;
+    double yMax = m_center.y() + half;
 
     QValueAxis *ax = qobject_cast<QValueAxis*>(c->axes(Qt::Horizontal).first());
     QValueAxis *ay = qobject_cast<QValueAxis*>(c->axes(Qt::Vertical).first());
     if (ax) ax->setRange(xMin, xMax);
     if (ay) ay->setRange(yMin, yMax);
+}
+
+//校准坐标
+void MainWindow::onCalibrateOrigin()
+{
+    if (device1Points.isEmpty()) {
+        QMessageBox::information(this, "提示", "设备1尚未收到任何坐标，无法校准原点！");
+        return;
+    }
+    origin0 = device1Points.last();          // 取最新点
+    ui->statusLabel->setText(
+        QString("原点已校准 → 设备1: (%1, %2)").arg(origin0.x()).arg(origin0.y()));
+
+    calibRaw.append(device1Points.last());
+    if (calibRaw.size() == 3) calibReady = true;
+
+    QMessageBox::information(this, "提示", "校准完成!");
+
+
+}
+
+void MainWindow::onCalibrate10_10()
+{
+    if (device1Points.isEmpty()) {
+        QMessageBox::information(this, "提示", "设备1尚未收到任何坐标，无法校准！");
+        return;
+    }
+
+    QPointF raw = device1Points.last();
+    origin0 = raw - QPointF(10, 10);   // 把当前实际坐标减去偏移量，得到“设定原点”
+    ui->statusLabel->setText(
+        QString("已校准(10,10) → 设备1原点: (%1, %2)").arg(origin0.x()).arg(origin0.y()));
+
+
+    calibRaw.append(device1Points.last());
+    if (calibRaw.size() == 3) calibReady = true;
+
+
+    QMessageBox::information(this, "提示", "校准完成!");
+}
+
+void MainWindow::onCalibrateN10_N10()
+{
+    if (device1Points.isEmpty()) {
+        QMessageBox::information(this, "提示", "设备1尚未收到任何坐标，无法校准！");
+        return;
+    }
+
+    QPointF raw = device1Points.last();
+    origin0 = raw - QPointF(-10, -10);   // 把当前实际坐标减去偏移量，得到“设定原点”
+    ui->statusLabel->setText(
+        QString("已校准(-10,-10) → 设备1原点: (%1, %2)").arg(origin0.x()).arg(origin0.y()));
+
+
+    calibRaw.append(device1Points.last());
+    if (calibRaw.size() == 3) calibReady = true;
+
+    QMessageBox::information(this, "提示", "校准完成!");
+}
+
+void MainWindow::onToggleCoordSystem()
+{
+    if (!calibReady) {
+        QMessageBox::information(this, "提示", "请先完成 3 点校准（设备1）");
+        return;
+    }
+
+    useCalibrated = !useCalibrated;
+
+    if (useCalibrated) {
+        QPointF src[3] = { calibRaw[0], calibRaw[1], calibRaw[2] };
+        QPointF dst[3] = { {0,0}, {5,5}, {-5,5} };
+        if (!solveAffine(src, dst, affineM)) {
+            QMessageBox::warning(this, "错误", "校准点共线，无法求仿射变换");
+            useCalibrated = false;
+            return;
+        }
+        ui->btnToggleCoord->setText("切换回原始坐标");
+
+        // ✅ 更新坐标轴标题
+        axisX->setTitleText("X坐标（变换后）");
+        axisY->setTitleText("Y坐标（变换后）");
+
+    } else {
+        ui->btnToggleCoord->setText("切换坐标系");
+
+        // ✅ 恢复原始标题
+        axisX->setTitleText("X坐标（原始）");
+        axisY->setTitleText("Y坐标（原始）");
+    }
+
+    updatePlot();   // 立即重绘全部设备
+    refreshDev1Label();
+    // ✅ 不调用 updateAxes()，保持当前视图
+    ui->statusLabel->setText(useCalibrated ? "当前为变换坐标系" : "当前为原始坐标系");
+}
+bool MainWindow::solveAffine(const QPointF src[3], const QPointF dst[3], double M[6])
+{
+    // 6x6 线性方程组：高斯消元
+    double A[6][7] = {0};
+    for (int i = 0; i < 3; ++i) {
+        A[i][0] = src[i].x(); A[i][1] = src[i].y(); A[i][2] = 1;     // x 方程
+        A[i][6] = dst[i].x();
+        A[i+3][3] = src[i].x(); A[i+3][4] = src[i].y(); A[i+3][5] = 1; // y 方程
+        A[i+3][6] = dst[i].y();
+    }
+    for (int col = 0; col < 6; ++col) {
+        int pivot = col;
+        for (int r = col + 1; r < 6; ++r)
+            if (qAbs(A[r][col]) > qAbs(A[pivot][col])) pivot = r;
+        if (qAbs(A[pivot][col]) < 1e-10) return false;
+        for (int c = 0; c < 7; ++c) qSwap(A[col][c], A[pivot][c]);
+        for (int r = 0; r < 6; ++r) {
+            if (r == col) continue;
+            double f = A[r][col] / A[col][col];
+            for (int c = col; c < 7; ++c) A[r][c] -= f * A[col][c];
+        }
+    }
+    for (int i = 0; i < 6; ++i) M[i] = A[i][6] / A[i][i];
+    return true;
+}
+
+inline QPointF MainWindow::mapPoint(const QPointF &p) const
+{
+    if (!useCalibrated) return p;
+    return QPointF(affineM[0]*p.x() + affineM[1]*p.y() + affineM[2],
+                   affineM[3]*p.x() + affineM[4]*p.y() + affineM[5]);
+}
+// 放在文件末尾即可
+void MainWindow::refreshDev1Label()
+{
+    if (device1Points.isEmpty()) {
+        ui->labelDev1Coord->setText("设备1：暂无数据");
+        return;
+    }
+
+    QPointF raw  = device1Points.last();
+    QPointF show = mapPoint(raw);   // 自动根据 useCalibrated 切换坐标系
+
+    QString text = QString("设备1：X = %1  |  Y = %2")
+                       .arg(show.x(), 0, 'f', 2)
+                       .arg(show.y(), 0, 'f', 2);
+
+    ui->labelDev1Coord->setText(text);
 }
