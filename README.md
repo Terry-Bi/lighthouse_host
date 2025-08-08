@@ -1,4 +1,10 @@
 # lighthouse_host
+
+## Version 5.0
+
+The last Version can click the link :"https://github.com/atomic-hkust-gz/lighthouse-tracking/tree/nrf52833_new"
+
+
 ## Version 4.0
 ## Email:    bizhoutao.terry@gmail.com
 
@@ -34,3 +40,4 @@
 
 1. The data stream if more than 2000Hz(Byte), the host will destory.
 2. Need a clear button in the to clear the x,y trajectory.
+
